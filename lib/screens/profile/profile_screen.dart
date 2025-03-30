@@ -114,22 +114,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             // Validate username is not empty
                             final username = _usernameController.text.trim();
                             if (username.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Username cannot be empty'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Username cannot be empty'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
                               return;
                             }
                             
-                            await authService.updateProfile(
+                            final success = await authService.updateProfile(
                               username,
                               user.photoUrl,
                             );
-                            setState(() {
-                              _isEditing = false;
-                            });
+                            
+                            // Nur setState aufrufen, wenn das Widget noch gemountet ist
+                            if (mounted) {
+                              setState(() {
+                                _isEditing = false;
+                              });
+                              
+                              // Zeige eine Erfolgsmeldung an
+                              if (success) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Username updated successfully'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(authService.errorMessage ?? 'Failed to update username'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
                           }
                         },
                         child: const Text('Save'),
@@ -182,7 +205,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       backgroundColor: Colors.red,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
-                    child: const Text('Sign Out'),
+                    child: const Text(
+                      'Sign Out',
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
                 ),
               ],

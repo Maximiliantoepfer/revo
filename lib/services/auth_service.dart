@@ -201,8 +201,27 @@ class AuthService extends ChangeNotifier {
   Future<void> _saveUserToFirestore(app_models.User user) async {
     try {
       final userData = user.toJson();
-      await _firestore.collection('users').doc(user.id).set(userData);
-      print('User data saved to Firestore: $userData');
+      print('Saving user data to Firestore: $userData');
+      
+      // Verwende merge: true, um nur die geänderten Felder zu aktualisieren
+      // und keine vorhandenen Daten zu überschreiben
+      await _firestore.collection('users').doc(user.id).set(userData, SetOptions(merge: true));
+      
+      // Hole die aktualisierten Daten, um zu überprüfen, ob sie korrekt gespeichert wurden
+      final updatedDoc = await _firestore.collection('users').doc(user.id).get();
+      if (updatedDoc.exists) {
+        final updatedData = updatedDoc.data();
+        print('Updated user data in Firestore: $updatedData');
+        
+        // Überprüfe, ob der Benutzername korrekt aktualisiert wurde
+        final savedUsername = updatedData?['username'] as String? ?? '';
+        if (savedUsername != user.username) {
+          print('Warning: Username in Firestore ($savedUsername) does not match expected username (${user.username})');
+          // Versuche erneut, nur den Benutzernamen zu aktualisieren
+          await _firestore.collection('users').doc(user.id).update({'username': user.username});
+          print('Explicitly updated username field in Firestore');
+        }
+      }
     } catch (e) {
       print('Error saving user data to Firestore: $e');
       throw e;
@@ -490,8 +509,21 @@ class AuthService extends ChangeNotifier {
         username = 'User';
       }
       
+      print('Updating profile with username: $username');
+      
       // Update display name in Firebase Auth
-      await _firebaseAuth.currentUser?.updateDisplayName(username);
+      final firebaseUser = _firebaseAuth.currentUser;
+      if (firebaseUser != null) {
+        try {
+          await firebaseUser.updateDisplayName(username);
+          print('Updated Firebase Auth display name to: $username');
+        } catch (e) {
+          print('Error updating Firebase Auth display name: $e');
+          // Continue even if this fails
+        }
+      } else {
+        print('Cannot update Firebase Auth display name: user is null');
+      }
       
       // Create updated user object
       final updatedUser = app_models.User(
@@ -503,17 +535,25 @@ class AuthService extends ChangeNotifier {
       );
       
       // Update user in Firestore
-      await _saveUserToFirestore(updatedUser);
+      try {
+        await _saveUserToFirestore(updatedUser);
+        print('Updated user in Firestore with username: $username');
+      } catch (e) {
+        print('Error updating user in Firestore: $e');
+        throw e; // Rethrow to handle in the catch block below
+      }
       
       // Update local user object
       _currentUser = updatedUser;
+      print('Updated local user object with username: ${_currentUser!.username}');
       
       _isLoading = false;
-      notifyListeners();
+      notifyListeners(); // Benachrichtigt alle Listener über die Änderung
       return true;
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to update profile: $e';
+      print('Error in updateProfile: $_errorMessage');
       notifyListeners();
       return false;
     }
