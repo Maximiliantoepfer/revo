@@ -1,0 +1,29 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "revo-46416",
+          "appId": "1:538622423250:android:a42d6587cc14834ff4bd0b",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "revo-46416",
+          "configurations": {
+            "android": "1:538622423250:android:a42d6587cc14834ff4bd0b",
+            "ios": "1:538622423250:ios:c9f93df056282c0ef4bd0b",
+            "macos": "1:538622423250:ios:c9f93df056282c0ef4bd0b",
+            "web": "1:538622423250:web:ce0d581d3f23128ff4bd0b",
+            "windows": "1:538622423250:web:9cefbb07e702248cf4bd0b"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore/firestore.rules",
+    "indexes": "firestore/firestore.indexes.json"
+  }
+}

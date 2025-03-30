@@ -1,0 +1,12 @@
+# IDE
+.idea
+.vscode
+
+# KEYS
+google-services.json
+GoogleService-Info.plist
+
+
+# rest
+.gradle
+build
