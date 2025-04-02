@@ -3,11 +3,44 @@ import '../models/workout_log.dart';
 import '../models/exercise_log.dart';
 import '../models/workout.dart';
 import '../models/exercise.dart';
+import 'local_storage_service.dart';
+import 'dart:developer' as developer;
 
 class WorkoutLogService extends ChangeNotifier {
   List<WorkoutLog> _workoutLogs = [];
   WorkoutLog? _activeWorkoutLog;
   bool _isLoading = false;
+  final LocalStorageService _localStorageService = LocalStorageService();
+
+  WorkoutLogService() {
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      _workoutLogs = await _localStorageService.loadWorkoutLogs();
+      _activeWorkoutLog = await _localStorageService.loadActiveWorkoutLog();
+      developer.log('Loaded ${_workoutLogs.length} workout logs, active log: ${_activeWorkoutLog?.id ?? "none"}');
+    } catch (e) {
+      developer.log('Error loading workout logs: $e', error: e);
+    }
+
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> _saveData() async {
+    try {
+      await _localStorageService.saveWorkoutLogs(_workoutLogs);
+      await _localStorageService.saveActiveWorkoutLog(_activeWorkoutLog);
+      developer.log('Saved ${_workoutLogs.length} workout logs, active log: ${_activeWorkoutLog?.id ?? "none"}');
+    } catch (e) {
+      developer.log('Error saving workout logs: $e', error: e);
+    }
+  }
 
   List<WorkoutLog> get workoutLogs => _workoutLogs;
   WorkoutLog? get activeWorkoutLog => _activeWorkoutLog;
@@ -15,11 +48,15 @@ class WorkoutLogService extends ChangeNotifier {
   bool get hasActiveWorkout => _activeWorkoutLog != null;
 
   Future<List<WorkoutLog>> getUserWorkoutLogs(String userId) async {
-    return _workoutLogs.where((log) => log.userId == userId).toList();
+    final userLogs = _workoutLogs.where((log) => log.userId == userId).toList();
+    developer.log('Found ${userLogs.length} workout logs for user: $userId');
+    return userLogs;
   }
 
   Future<List<WorkoutLog>> getWorkoutLogs(String workoutId) async {
-    return _workoutLogs.where((log) => log.workoutId == workoutId).toList();
+    final logs = _workoutLogs.where((log) => log.workoutId == workoutId).toList();
+    developer.log('Found ${logs.length} logs for workout: $workoutId');
+    return logs;
   }
 
   Future<WorkoutLog> startWorkout({
@@ -29,9 +66,6 @@ class WorkoutLogService extends ChangeNotifier {
   }) async {
     _isLoading = true;
     notifyListeners();
-
-    // In a real app, you would save this to a database or API
-    await Future.delayed(const Duration(seconds: 1));
 
     final now = DateTime.now();
     final newWorkoutLog = WorkoutLog(
@@ -44,6 +78,9 @@ class WorkoutLogService extends ChangeNotifier {
 
     _workoutLogs.add(newWorkoutLog);
     _activeWorkoutLog = newWorkoutLog;
+
+    await _saveData(); // Speichern der Daten
+    developer.log('Started new workout: ${workout.name}, log ID: ${newWorkoutLog.id}');
 
     _isLoading = false;
     notifyListeners();
@@ -78,13 +115,13 @@ class WorkoutLogService extends ChangeNotifier {
     required Map<TrackingType, dynamic> values,
     required bool isCompleted,
   }) async {
-    if (_activeWorkoutLog == null) return;
+    if (_activeWorkoutLog == null) {
+      developer.log('Cannot update set log: no active workout');
+      return;
+    }
 
     _isLoading = true;
     notifyListeners();
-
-    // In a real app, you would update this in a database or API
-    await Future.delayed(const Duration(milliseconds: 300));
 
     final exerciseLogIndex = _activeWorkoutLog!.exerciseLogs
         .indexWhere((log) => log.id == exerciseLogId);
@@ -121,21 +158,29 @@ class WorkoutLogService extends ChangeNotifier {
         if (logIndex != -1) {
           _workoutLogs[logIndex] = _activeWorkoutLog!;
         }
+        
+        developer.log('Updated set $setNumber for exercise log: $exerciseLogId, completed: $isCompleted');
+      } else {
+        developer.log('Set not found: $setNumber in exercise log: $exerciseLogId');
       }
+    } else {
+      developer.log('Exercise log not found: $exerciseLogId');
     }
+
+    await _saveData(); // Speichern der Daten
 
     _isLoading = false;
     notifyListeners();
   }
 
   Future<void> finishWorkout({String? notes}) async {
-    if (_activeWorkoutLog == null) return;
+    if (_activeWorkoutLog == null) {
+      developer.log('Cannot finish workout: no active workout');
+      return;
+    }
 
     _isLoading = true;
     notifyListeners();
-
-    // In a real app, you would update this in a database or API
-    await Future.delayed(const Duration(seconds: 1));
 
     final updatedWorkoutLog = _activeWorkoutLog!.copyWith(
       endTime: DateTime.now(),
@@ -150,21 +195,28 @@ class WorkoutLogService extends ChangeNotifier {
 
     _activeWorkoutLog = null;
 
+    await _saveData(); // Speichern der Daten
+    developer.log('Finished workout: ${updatedWorkoutLog.id}');
+
     _isLoading = false;
     notifyListeners();
   }
 
   Future<void> cancelWorkout() async {
-    if (_activeWorkoutLog == null) return;
+    if (_activeWorkoutLog == null) {
+      developer.log('Cannot cancel workout: no active workout');
+      return;
+    }
 
     _isLoading = true;
     notifyListeners();
 
-    // In a real app, you would delete this from a database or API
-    await Future.delayed(const Duration(seconds: 1));
-
-    _workoutLogs.removeWhere((log) => log.id == _activeWorkoutLog!.id);
+    final workoutId = _activeWorkoutLog!.id;
+    _workoutLogs.removeWhere((log) => log.id == workoutId);
     _activeWorkoutLog = null;
+
+    await _saveData(); // Speichern der Daten
+    developer.log('Canceled workout: $workoutId');
 
     _isLoading = false;
     notifyListeners();
@@ -174,6 +226,7 @@ class WorkoutLogService extends ChangeNotifier {
     try {
       return _workoutLogs.firstWhere((log) => log.id == id);
     } catch (e) {
+      developer.log('Workout log not found: $id');
       return null;
     }
   }

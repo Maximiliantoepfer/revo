@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/exercise.dart';
+import 'local_storage_service.dart';
+import 'dart:developer' as developer;
 
 class ExerciseService extends ChangeNotifier {
+  // Wir behalten die Firestore-Referenz für den Fall, dass wir später wieder auf Firestore umstellen wollen
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Exercise> _exercises = [];
   bool _isLoading = false;
   String? _errorMessage;
+  final LocalStorageService _localStorageService = LocalStorageService();
 
   List<Exercise> get exercises => _exercises;
   bool get isLoading => _isLoading;
@@ -22,43 +26,35 @@ class ExerciseService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Load predefined exercises
-      final predefinedSnapshot = await _firestore
-          .collection('exercises')
-          .where('isCustom', isEqualTo: false)
-          .get();
+      // Versuche, Übungen aus dem lokalen Speicher zu laden
+      _exercises = await _localStorageService.loadExercises();
+      developer.log('Loaded ${_exercises.length} exercises from local storage');
 
-      // Load user exercises
-      final userSnapshot = await _firestore
-          .collection('exercises')
-          .where('isCustom', isEqualTo: true)
-          .get();
-
-      final predefinedExercises = predefinedSnapshot.docs
-          .map((doc) => Exercise.fromJson(doc.data()))
-          .toList();
-
-      final userExercises = userSnapshot.docs
-          .map((doc) => Exercise.fromJson(doc.data()))
-          .toList();
-
-      _exercises = [...predefinedExercises, ...userExercises];
-
-      // If no predefined exercises exist, create them
-      if (predefinedExercises.isEmpty) {
+      // Wenn keine Übungen vorhanden sind, erstelle vordefinierte Übungen
+      if (_exercises.isEmpty) {
+        developer.log('No exercises found, creating predefined exercises');
         await _createPredefinedExercises();
       }
     } catch (e) {
       _errorMessage = 'Failed to load exercises: $e';
-      print(_errorMessage);
+      developer.log(_errorMessage!, error: e);
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
+  Future<void> _saveExercises() async {
+    try {
+      await _localStorageService.saveExercises(_exercises);
+      developer.log('Saved ${_exercises.length} exercises to local storage');
+    } catch (e) {
+      _errorMessage = 'Failed to save exercises: $e';
+      developer.log(_errorMessage!, error: e);
+    }
+  }
+
   Future<void> _createPredefinedExercises() async {
-    final batch = _firestore.batch();
     final predefinedExercises = [
       Exercise(
         id: 'ex1',
@@ -134,13 +130,9 @@ class ExerciseService extends ChangeNotifier {
       ),
     ];
 
-    for (final exercise in predefinedExercises) {
-      final docRef = _firestore.collection('exercises').doc(exercise.id);
-      batch.set(docRef, exercise.toJson());
-    }
-
-    await batch.commit();
+    developer.log('Adding ${predefinedExercises.length} predefined exercises');
     _exercises.addAll(predefinedExercises);
+    await _saveExercises();
     notifyListeners();
   }
 
@@ -157,9 +149,9 @@ class ExerciseService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final docRef = _firestore.collection('exercises').doc();
+      final now = DateTime.now();
       final newExercise = Exercise(
-        id: docRef.id,
+        id: 'ex_${now.millisecondsSinceEpoch}',
         name: name,
         description: description,
         imageUrl: imageUrl,
@@ -169,8 +161,9 @@ class ExerciseService extends ChangeNotifier {
         category: category,
       );
 
-      await docRef.set(newExercise.toJson());
       _exercises.add(newExercise);
+      await _saveExercises();
+      developer.log('Added new exercise: ${newExercise.name}');
       
       _isLoading = false;
       notifyListeners();
@@ -178,6 +171,7 @@ class ExerciseService extends ChangeNotifier {
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to add exercise: $e';
+      developer.log(_errorMessage!, error: e);
       notifyListeners();
       throw Exception(_errorMessage);
     }
@@ -189,14 +183,13 @@ class ExerciseService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _firestore
-          .collection('exercises')
-          .doc(exercise.id)
-          .update(exercise.toJson());
-
       final index = _exercises.indexWhere((e) => e.id == exercise.id);
       if (index != -1) {
         _exercises[index] = exercise;
+        await _saveExercises();
+        developer.log('Updated exercise: ${exercise.name}');
+      } else {
+        developer.log('Exercise not found for update: ${exercise.id}');
       }
 
       _isLoading = false;
@@ -204,6 +197,7 @@ class ExerciseService extends ChangeNotifier {
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to update exercise: $e';
+      developer.log(_errorMessage!, error: e);
       notifyListeners();
       throw Exception(_errorMessage);
     }
@@ -215,14 +209,16 @@ class ExerciseService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _firestore.collection('exercises').doc(exerciseId).delete();
       _exercises.removeWhere((e) => e.id == exerciseId);
+      await _saveExercises();
+      developer.log('Deleted exercise: $exerciseId');
 
       _isLoading = false;
       notifyListeners();
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to delete exercise: $e';
+      developer.log(_errorMessage!, error: e);
       notifyListeners();
       throw Exception(_errorMessage);
     }
@@ -232,19 +228,25 @@ class ExerciseService extends ChangeNotifier {
     try {
       return _exercises.firstWhere((exercise) => exercise.id == id);
     } catch (e) {
+      developer.log('Exercise not found: $id', error: e);
       return null;
     }
   }
 
   List<Exercise> getUserExercises(String userId) {
-    return _exercises.where((exercise) => exercise.userId == userId).toList();
+    final userExercises = _exercises.where((exercise) => exercise.userId == userId).toList();
+    developer.log('Found ${userExercises.length} exercises for user: $userId');
+    return userExercises;
   }
 
   List<Exercise> getPredefinedExercises() {
-    return _exercises.where((exercise) => !exercise.isCustom).toList();
+    final predefinedExercises = _exercises.where((exercise) => !exercise.isCustom).toList();
+    developer.log('Found ${predefinedExercises.length} predefined exercises');
+    return predefinedExercises;
   }
 
   Future<void> refreshExercises() async {
+    developer.log('Refreshing exercises');
     await _loadExercises();
   }
 }
